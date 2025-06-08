@@ -104,6 +104,7 @@ var YouTubePlayer = {
           'rel': 0,
           'loop': 0,
           'suggestedQuality': 'hd1080',
+          'setPlaybackQuality': 'hd1080'
         },
         videoId: self.videoId,
         events: {
@@ -115,12 +116,22 @@ var YouTubePlayer = {
       });
       self.startAutoStopTimer();
     };
-    var html = $('<div class="' + this.containerId + '"><div class="player-video__youtube-player" id="' + this.containerId + '"></div></div>');
-    var object = $('<div class="' + this.containerId + '"><div class="player-video__youtube-player" id="' + this.containerId + '"></div></div>');
-    if (Lampa.Platform.tv() || Lampa.Platform.get() == 'android' || Lampa.Platform.get() == 'noname') $('body').append(object[0]);
-    else Lampa.Activity.active().activity.render().find('.full-start-new').prepend(object);
-    if (window.YT) loadYouTubePlayer(); else {
+    // Двойной контейнер, как в исходнике
+    var html = $('<div class="'+this.containerId+'"><div class="player-video__youtube-player" id="'+this.containerId+'"></div></div>');
+    if (Lampa.Platform.tv() || Lampa.Platform.get() == 'android' || Lampa.Platform.get() == 'noname') $('body').append(html[0]);
+    else Lampa.Activity.active().activity.render().find('.full-start-new').prepend(html);
+    // УБРАНО: скрытие карточки фильма отсюда
+    // Скрываем карточку фильма
+    // Lampa.Activity.active().activity.render().find('.full-start-new').css({'opacity': 0, 'pointer-events': 'none', 'transition': 'opacity 0.5s'});
+    // Гибридная загрузка YouTube API
+    if (window.YT) loadYouTubePlayer();
+    else if (window.jQuery && $.getScript) {
       $.getScript('https://www.youtube.com/iframe_api', loadYouTubePlayer);
+    } else {
+      var tag = document.createElement('script');
+      tag.src = 'https://www.youtube.com/iframe_api';
+      tag.onload = loadYouTubePlayer;
+      document.body.appendChild(tag);
     }
   },
 
@@ -131,9 +142,13 @@ var YouTubePlayer = {
       this.player.playVideo();
       if (!Lampa.Platform.is('apple')) event.target.unMute();
       this.isVideoPlaying = true;
-      this.hidePoster();
+      // Скрываем карточку фильма только если видео реально запустилось
+      Lampa.Activity.active().activity.render().find('.full-start-new').css({'opacity': 0, 'pointer-events': 'none', 'transition': 'opacity 0.5s'});
+      // this.hidePoster(); // Временно отключено для теста
     } catch (error) {
       console.log('YouTubePlayer error:', error);
+      // Если ошибка — возвращаем карточку
+      Lampa.Activity.active().activity.render().find('.full-start-new').css({'opacity': 1, 'pointer-events': 'auto', 'transition': 'opacity 0.5s'});
     }
   },
 
@@ -143,7 +158,7 @@ var YouTubePlayer = {
         this.fullScreen();
         break;
       case YT.PlayerState.ENDED:
-        this.removePlayer();
+        this.removePlayer('ended'); // Исправлено: удаляем плеер после окончания
         break;
       case YT.PlayerState.BUFFERING:
         event.target.setPlaybackQuality('hd1080');
@@ -176,36 +191,43 @@ var YouTubePlayer = {
       default:
         this.removePlayer(event.data);
     }
+    // При ошибке всегда возвращаем карточку
+    Lampa.Activity.active().activity.render().find('.full-start-new').css({'opacity': 1, 'pointer-events': 'auto', 'transition': 'opacity 0.5s'});
   },
 
   removePlayer: function(hide) {
-    if (this.player) {
-      if (typeof hide == 'string' && hide.indexOf('full_descr') >= 0) {
-        this.isVideoPause = true;
-        if (typeof this.player.pauseVideo === 'function') this.player.pauseVideo();
-      } else {
-        try {
-          if (typeof this.player.destroy === 'function') {
-            this.player.destroy();
+    try {
+      if (this.player) {
+        if (typeof hide == 'string' && hide.indexOf('full_descr') >= 0) {
+          this.isVideoPause = true;
+          if (typeof this.player.pauseVideo === 'function') this.player.pauseVideo();
+        } else {
+          try {
+            if (typeof this.player.destroy === 'function') {
+              this.player.destroy();
+            }
+          } catch (error) {
+            console.error('YouTubePlayer destroy error:', error);
           }
           $('.' + this.containerId).remove();
           this.fadeOut(false, false, true);
           this.isVideoPlaying = false;
           this.isVideoPause = false;
-        } catch (error) {
-          console.error('YouTubePlayer destroy error:', error);
         }
         this.player = null;
         this.clearAutoStopTimer();
         if (hide !== 'new card') this.hidePoster();
+      } else {
+        $('.' + this.containerId).remove();
+        this.isVideoPlaying = false;
+        this.isVideoPause = false;
+        this.player = null;
+        this.clearAutoStopTimer();
       }
-    } else {
-      // Если плеер уже уничтожен, просто убираем контейнер
-      $('.' + this.containerId).remove();
-      this.isVideoPlaying = false;
-      this.isVideoPause = false;
-      this.player = null;
-      this.clearAutoStopTimer();
+      // Показываем карточку фильма обратно
+      Lampa.Activity.active().activity.render().find('.full-start-new').css({'opacity': 1, 'pointer-events': 'auto', 'transition': 'opacity 0.5s'});
+    } catch (e) {
+      console.error('YouTubePlayer removePlayer error:', e);
     }
   },
 
@@ -233,59 +255,143 @@ var YouTubePlayer = {
   },
 
   fadeOut: function(fid, key, rem) {
-    var _this = this;
-    var element = Lampa.Activity.active().activity.render().find('.full-start-new__body');
-    if (!!rem) {
-      $('body').toggleClass('card--no-cover', false);
-      $(element).css({opacity: 1, transition: 'opacity 1s ease'});
-    } else {
-      if (element) {
-        $(element).css({opacity: fid ? 0 : 1, transition: 'opacity 2s ease'});
-        if (this.enabled.name == 'full_start') setTimeout(function() {
-          $('body').toggleClass('card--no-cover', true);
-          $(element).css({opacity: 0, transition: 'opacity 2s ease'});
-        }, !_this.isVideoPause ? _this.hideBodyTime : 3000);
-        else $('body').toggleClass('card--no-cover', fid);
-        $('body').find('.youtube-trailers').css({
-          'z-index': this.enabled.name !== 'full_start' ? -1 : !_this.isVideoPause && fid && !key ? 99 : 9
-        });
+    try {
+      var _this = this;
+      var element;
+      try {
+        element = Lampa.Activity.active().activity.render().find('.full-start-new__body');
+      } catch (e) {
+        element = null;
       }
+      if (!!rem) {
+        $('body').toggleClass('card--no-cover', false);
+        if (element) $(element).css({opacity: 1, transition: 'opacity 1s ease'});
+        // Показываем постер и детали
+        $('.full-start-new__img.full--poster, .full-start-new__details, .full-start-new__title').css({opacity: 1, 'pointer-events': 'auto'});
+      } else {
+        if (element) {
+          // Не скрываем весь body, только детали
+          // $(element).css({opacity: fid ? 0.99 : 1, transition: 'opacity 2s ease'});
+          if (this.enabled && this.enabled.name == 'full_start') setTimeout(function() {
+            $('body').toggleClass('card--no-cover', true);
+            // $(element).css({opacity: 0.99, transition: 'opacity 2s ease'});
+          }, !_this.isVideoPause ? _this.hideBodyTime : 3000);
+          else $('body').toggleClass('card--no-cover', fid);
+          // Скрываем только постер и детали
+          $('.full-start-new__img.full--poster, .full-start-new__details, .full-start-new__title').css({opacity: 0, 'pointer-events': 'none'});
+          try {
+            if ($('body').find('.youtube-trailers').length)
+              $('body').find('.youtube-trailers').css({
+                'z-index': (this.enabled && this.enabled.name !== 'full_start') ? -1 : !_this.isVideoPause && fid && !key ? 99 : 9
+              });
+          } catch (e) {}
+        }
+      }
+    } catch (e) {
+      console.error('YouTubePlayer fadeOut error:', e);
     }
   },
 
   hidePoster: function() {
-    var _self = this;
-    var fullStartNew = Lampa.Activity.active().activity.render().find('.full-start-new');
-    if (fullStartNew) {
-      var fullPoster = fullStartNew.find('.full-start-new__img.full--poster');
-      var hasTrailersPlayer = !!fullStartNew.find('.' + this.containerId).length;
-      var updateFullPosterVisibility = function() {
-        if (window.innerWidth >= 340 && window.innerWidth <= 480 && window.innerHeight > 480) {
-          _self.fullScreen();
-          $(fullPoster).css({opacity: hasTrailersPlayer ? '0' : '1', transition: hasTrailersPlayer ? 'opacity 1s ease-in-out' : 'none'});
-        } else $(fullPoster).css({opacity:1, transition: 'none'});
-      };
-      Lampa.Keypad.listener.follow('keydown', function(e) {
-        setTimeout(function() {
-          _self.fadeOut(false, true);
-        }, 100);
-      });
-      window.addEventListener('touchstart', function(e) {
-        if (_self.isVideoPlaying) {
-          if (_self.player.isMuted()) _self.player.unMute();
-          _self.fadeOut(false, false, true);
-          if (_self.isVideoPlaying) $(fullPoster).css({opacity:0, transition: 'none'});
-        }
-      });
-      updateFullPosterVisibility();
-      window.addEventListener('resize', updateFullPosterVisibility);
+    try {
+      var _self = this;
+      var fullStartNew;
+      try {
+        fullStartNew = Lampa.Activity.active().activity.render().find('.full-start-new');
+      } catch (e) {
+        fullStartNew = null;
+      }
+      if (fullStartNew && fullStartNew.length) {
+        var fullPoster = fullStartNew.find('.full-start-new__img.full--poster');
+        var hasTrailersPlayer = !!fullStartNew.find('.' + this.containerId).length;
+        var updateFullPosterVisibility = function() {
+          if (window.innerWidth >= 340 && window.innerWidth <= 480 && window.innerHeight > 480) {
+            _self.fullScreen();
+            $(fullPoster).css({opacity: hasTrailersPlayer ? '0' : '1', transition: hasTrailersPlayer ? 'opacity 1s ease-in-out' : 'none'});
+          } else $(fullPoster).css({opacity:1, transition: 'none'});
+        };
+        Lampa.Keypad.listener.follow('keydown', function(e) {
+          setTimeout(function() {
+            _self.fadeOut(false, true);
+          }, 100);
+        });
+        window.addEventListener('touchstart', function(e) {
+          if (_self.isVideoPlaying && _self.player && typeof _self.player.isMuted === 'function') {
+            if (_self.player.isMuted()) _self.player.unMute();
+            _self.fadeOut(false, false, true);
+            if (_self.isVideoPlaying) $(fullPoster).css({opacity:0, transition: 'none'});
+          }
+        });
+        updateFullPosterVisibility();
+        window.addEventListener('resize', updateFullPosterVisibility);
+      }
+    } catch (e) {
+      console.error('YouTubePlayer hidePoster error:', e);
     }
   }
 };
 
 function addYouTubePlayer() {
   YouTubePlayer.init('VIDEO_ID', Lampa.Platform.tv() || Lampa.Platform.get() == 'noname' || Lampa.Platform.get() == 'android' ? 'youtube-trailers' : 'trailers-player');
-  Lampa.Template.add('modss_style', `<style>/* ...your styles here... */</style>`);
+  Lampa.Template.add('modss_style', `<style>
+    .youtube-trailers, .trailers-player {
+      position: absolute !important;
+      left: 0; top: 0;
+      width: 100vw !important;
+      height: 56vw !important;
+      max-height: 60vh;
+      min-height: 240px;
+      background: transparent !important;
+      z-index: 9 !important;
+      pointer-events: none !important;
+      overflow: hidden !important;
+      mask-image: linear-gradient(180deg, #000 80%, transparent 100%);
+      -webkit-mask-image: linear-gradient(180deg, #000 80%, transparent 100%);
+      border-radius: 1.5vw;
+      transition: opacity 0.5s;
+    }
+    .player-video__youtube-player, #youtube-trailers, #trailers-player {
+      width: 100vw !important;
+      height: 56vw !important;
+      max-height: 60vh;
+      min-height: 240px;
+      background: transparent !important;
+      position: relative;
+      z-index: 10 !important;
+      opacity: 1 !important;
+      display: block !important;
+      overflow: visible !important;
+      pointer-events: none !important;
+    }
+    .player-video__youtube-player iframe,
+    #youtube-trailers iframe,
+    #trailers-player iframe {
+      width: 100% !important;
+      height: 100% !important;
+      min-height: 240px;
+      min-width: 320px;
+      max-width: 100vw;
+      max-height: 100vh;
+      display: block;
+      position: absolute;
+      left: 0; top: 0;
+      background: #000;
+      z-index: 11 !important;
+      opacity: 1 !important;
+      pointer-events: none !important;
+      border-radius: 1.5vw;
+      mask-image: linear-gradient(180deg, #000 80%, transparent 100%);
+      -webkit-mask-image: linear-gradient(180deg, #000 80%, transparent 100%);
+      transition: opacity 0.5s;
+    }
+    .card--no-cover .full-start-new__img.full--poster,
+    .card--no-cover .full-start-new__details,
+    .card--no-cover .full-start-new__title {
+      opacity: 0 !important;
+      pointer-events: none !important;
+      transition: opacity 0.5s;
+    }
+  </style>`);
   $('body').append(Lampa.Template.get('modss_style', {}, true));
 }
 
