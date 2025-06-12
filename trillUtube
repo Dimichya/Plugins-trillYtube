@@ -116,18 +116,13 @@ var YouTubePlayer = {
       });
       self.startAutoStopTimer();
     };
-    // Двойной контейнер, как в исходнике
-    var html = $('<div class="'+this.containerId+'"><div class="player-video__youtube-player" id="'+this.containerId+'"></div></div>');
-    if (Lampa.Platform.tv() || Lampa.Platform.get() == 'android' || Lampa.Platform.get() == 'noname') $('body').append(html[0]);
-    else Lampa.Activity.active().activity.render().find('.full-start-new').prepend(html);
-    // УБРАНО: скрытие карточки фильма отсюда
-    // Скрываем карточку фильма
-    // Lampa.Activity.active().activity.render().find('.full-start-new').css({'opacity': 0, 'pointer-events': 'none', 'transition': 'opacity 0.5s'});
-    // Гибридная загрузка YouTube API
-    if (window.YT) loadYouTubePlayer();
-    else if (window.jQuery && $.getScript) {
-      $.getScript('https://www.youtube.com/iframe_api', loadYouTubePlayer);
+    var html = $('<div class="' + this.containerId + '"><div class="player-video__youtube-player" id="' + this.containerId + '"></div></div>');
+    if (Lampa.Platform.tv() || Lampa.Platform.get() == 'android' || Lampa.Platform.get() == 'noname') {
+      $('body').append(html[0]);
     } else {
+      Lampa.Activity.active().activity.render().find('.full-start-new').prepend(html);
+    }
+    if (window.YT) loadYouTubePlayer(); else {
       var tag = document.createElement('script');
       tag.src = 'https://www.youtube.com/iframe_api';
       tag.onload = loadYouTubePlayer;
@@ -142,13 +137,9 @@ var YouTubePlayer = {
       this.player.playVideo();
       if (!Lampa.Platform.is('apple')) event.target.unMute();
       this.isVideoPlaying = true;
-      // Скрываем карточку фильма только если видео реально запустилось
-      Lampa.Activity.active().activity.render().find('.full-start-new').css({'opacity': 0, 'pointer-events': 'none', 'transition': 'opacity 0.5s'});
-      // this.hidePoster(); // Временно отключено для теста
+      this.hidePoster();
     } catch (error) {
       console.log('YouTubePlayer error:', error);
-      // Если ошибка — возвращаем карточку
-      Lampa.Activity.active().activity.render().find('.full-start-new').css({'opacity': 1, 'pointer-events': 'auto', 'transition': 'opacity 0.5s'});
     }
   },
 
@@ -158,7 +149,7 @@ var YouTubePlayer = {
         this.fullScreen();
         break;
       case YT.PlayerState.ENDED:
-        this.removePlayer('ended'); // Исправлено: удаляем плеер после окончания
+        this.removePlayer();
         break;
       case YT.PlayerState.BUFFERING:
         event.target.setPlaybackQuality('hd1080');
@@ -191,8 +182,6 @@ var YouTubePlayer = {
       default:
         this.removePlayer(event.data);
     }
-    // При ошибке всегда возвращаем карточку
-    Lampa.Activity.active().activity.render().find('.full-start-new').css({'opacity': 1, 'pointer-events': 'auto', 'transition': 'opacity 0.5s'});
   },
 
   removePlayer: function(hide) {
@@ -218,14 +207,13 @@ var YouTubePlayer = {
         this.clearAutoStopTimer();
         if (hide !== 'new card') this.hidePoster();
       } else {
+        // Если плеер уже уничтожен, просто убираем контейнер
         $('.' + this.containerId).remove();
         this.isVideoPlaying = false;
         this.isVideoPause = false;
         this.player = null;
         this.clearAutoStopTimer();
       }
-      // Показываем карточку фильма обратно
-      Lampa.Activity.active().activity.render().find('.full-start-new').css({'opacity': 1, 'pointer-events': 'auto', 'transition': 'opacity 0.5s'});
     } catch (e) {
       console.error('YouTubePlayer removePlayer error:', e);
     }
@@ -266,19 +254,14 @@ var YouTubePlayer = {
       if (!!rem) {
         $('body').toggleClass('card--no-cover', false);
         if (element) $(element).css({opacity: 1, transition: 'opacity 1s ease'});
-        // Показываем постер и детали
-        $('.full-start-new__img.full--poster, .full-start-new__details, .full-start-new__title').css({opacity: 1, 'pointer-events': 'auto'});
       } else {
         if (element) {
-          // Не скрываем весь body, только детали
-          // $(element).css({opacity: fid ? 0.99 : 1, transition: 'opacity 2s ease'});
+          $(element).css({opacity: fid ? 0 : 1, transition: 'opacity 2s ease'});
           if (this.enabled && this.enabled.name == 'full_start') setTimeout(function() {
             $('body').toggleClass('card--no-cover', true);
-            // $(element).css({opacity: 0.99, transition: 'opacity 2s ease'});
+            $(element).css({opacity: 0, transition: 'opacity 2s ease'});
           }, !_this.isVideoPause ? _this.hideBodyTime : 3000);
           else $('body').toggleClass('card--no-cover', fid);
-          // Скрываем только постер и детали
-          $('.full-start-new__img.full--poster, .full-start-new__details, .full-start-new__title').css({opacity: 0, 'pointer-events': 'none'});
           try {
             if ($('body').find('.youtube-trailers').length)
               $('body').find('.youtube-trailers').css({
@@ -334,63 +317,77 @@ var YouTubePlayer = {
 function addYouTubePlayer() {
   YouTubePlayer.init('VIDEO_ID', Lampa.Platform.tv() || Lampa.Platform.get() == 'noname' || Lampa.Platform.get() == 'android' ? 'youtube-trailers' : 'trailers-player');
   Lampa.Template.add('modss_style', `<style>
-    .youtube-trailers, .trailers-player {
-      position: absolute !important;
-      left: 0; top: 0;
-      width: 100vw !important;
-      height: 56vw !important;
-      max-height: 60vh;
-      min-height: 240px;
-      background: transparent !important;
-      z-index: 9 !important;
-      pointer-events: none !important;
-      overflow: hidden !important;
-      mask-image: linear-gradient(180deg, #000 80%, transparent 100%);
-      -webkit-mask-image: linear-gradient(180deg, #000 80%, transparent 100%);
-      border-radius: 1.5vw;
-      transition: opacity 0.5s;
+    .youtube-trailers {
+      position: fixed;
+      z-index: 9;
+      left: 0em;
+      right: 0;
+      top: 0em;
+      width: -webkit-calc(100%);
+      width: calc(100%);
+      height: 66%;
     }
-    .player-video__youtube-player, #youtube-trailers, #trailers-player {
-      width: 100vw !important;
-      height: 56vw !important;
-      max-height: 60vh;
-      min-height: 240px;
-      background: transparent !important;
-      position: relative;
-      z-index: 10 !important;
-      opacity: 1 !important;
-      display: block !important;
-      overflow: visible !important;
-      pointer-events: none !important;
+    .youtube-trailers iframe {
+      pointer-events: none;
+      position: fixed;
+      left: 0px;
+      right: 0;
+      top: -300px;
+      border: 0;
+      -webkit-transform-origin: left top;
+      -moz-transform-origin: left top;
+      -ms-transform-origin: left top;
+      -o-transform-origin: left top;
+      transform-origin: left top;
+      -webkit-transform: scale(0.5);
+      -moz-transform: scale(0.5);
+      -ms-transform: scale(0.5);
+      -o-transform: scale(0.5);
+      transform: scale(0.5);
+      -o-object-fit: cover;
+      object-fit: cover;
+      aspect-ratio: 10/9;
     }
-    .player-video__youtube-player iframe,
-    #youtube-trailers iframe,
-    #trailers-player iframe {
-      width: 100% !important;
-      height: 100% !important;
-      min-height: 240px;
-      min-width: 320px;
-      max-width: 100vw;
-      max-height: 100vh;
-      display: block;
+    .trailers-player {
+      position: fixed;
+      left: 0em;
+      right: 0;
+      top: -5em;
+      width: -webkit-calc(100%);
+      width: calc(100%);
+      height: 66%;
+      z-index: -1;
+      opacity: 0;
+      -webkit-transition: opacity 0.5s ease-in-out;
+      -o-transition: opacity 0.5s ease-in-out;
+      transition: opacity 0.5s ease-in-out;
+      overflow: hidden;
+      pointer-events: none;
+      -webkit-mask-image: url(data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAADMAAAAjCAYAAAA5dzKxAAAD+UlEQVRYhcWZ61IaQRCFz7KAgBgvyfu/XSqVquSXGrlKfjDH/Wh7FowYp6prVthl+5u+TE/b7HY7nWE07/y8Sa53Pc/7vh1leETJtygyKNcDXFPiPf68Te7N4AigMm+LbCSt+2CyVWkwU5lW0lDSqMyUAe5pw/1+xn+3AZjv8rAltpJWRZ4k3ddgaivEVbcyF5LGZZ5AxkVGgBwHuSjie1rMmbUM8qy9NZYF5EnSzwyGKxLdgStupaeSZpLmki7L9ax8Z2Wp/ATfTcs1gWkh6uLxXMSWWRT5HmEy3yaElZsA4ErSlzJfFSBDEYhCMFrQbkmhhzheItBG0m1mGVpigFXzSl4GiJsiBJoDhm41SpT33OrQIoRg4GdQjaQtYTIf9cvGALmSdC3ptshdALK7TYPSYyhNd4pBT4C4yBGMbjjvczO6mF3CMDcF4qukbwXKMAaxO9F1mN36UngcNTBaqx3iS4tfwDQ6Vhfsc3XudQeo6wI6U5ehsnQbE0vfFnBsHGTbWszQMnYzxwxh6GbX6qzi9Eqlszj4V4h09MUMYZwAZupc7UsQBz1dK1P87BCEiS8iTM06huLewoDnHpGNsygfR4wZXxOEpQo3vSmEwd6q35U+bBwrNOPGaZeLe4djhGXIfx81V8iyW7QWhWn200aEeUtK7CvTP2VEmOykxgMQa6It/n7W4TnjU0bNzaLyLrk3ktZFfJZYl88N6Gfjb304JBMAVzZawRAr7c8QC+3PEC6/J+rSfG1nj8Xi2d3RMD5v74J4tQ1iiMciD+rOIwP8Fnd/gmTl/NmghgHEL6F70a0M8iDpXl2J75RsSxouljRxPyPkWWA4ai5mq/xRZw0Xk2151uArHRaa8bCVVcseZ6vNTnGxsfYWoaIEWWpf3hiW55ZagyOz2LthIpAzWFtghtpbhhulQWi5ubqzPSuE2iHt2AnTevWNRuibxQTwchTVfsVZATCwDeys9qjX538XqKNw7VqPTRJaK2tmZMMJZ5PVZhmQ44YrFTskTzqsoGvNDAPacuze0GpZRvTMfcu6rGLMNPjSD24rwLaKYR7VHQ9i78xCwKkO+2zs1mRNjgzGC7qT9DuLmbj6NRC74FpdvFghWoBVNq1AkClmPkv3i3uUF9M6vOqbUWEFmCxtO4NFV7EibCcxGRCMCxDdk41Bbsp8/6Lo8KMWM9xEXUTGTOcfG5Yfi31jukmtH51ZjgtTg4n730LSr6bnXxpxM4vNiTbMgyN/sxfHA59BY1MwdncyGHvGUtJ9H0wGFEuRmKqznT37LD4bU3/ce+J2QCDL8hhMDa5vjgXlKeVKtlBZPZdV9i9x/NZ/NkXyU1cigzilaq59l+rxF+5FNzBsTB9XAAAAAElFTkSuQmCC);
+      mask-image: url(data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAADMAAAAjCAYAAAA5dzKxAAAD+UlEQVRYhcWZ61IaQRCFz7KAgBgvyfu/XSqVquSXGrlKfjDH/Wh7FowYp6prVthl+5u+TE/b7HY7nWE07/y8Sa53Pc/7vh1leETJtygyKNcDXFPiPf68Te7N4AigMm+LbCSt+2CyVWkwU5lW0lDSqMyUAe5pw/1+xn+3AZjv8rAltpJWRZ4k3ddgaivEVbcyF5LGZZ5AxkVGgBwHuSjie1rMmbUM8qy9NZYF5EnSzwyGKxLdgStupaeSZpLmki7L9ax8Z2Wp/ATfTcs1gWkh6uLxXMSWWRT5HmEy3yaElZsA4ErSlzJfFSBDEYhCMFrQbkmhhzheItBG0m1mGVpigFXzSl4GiJsiBJoDhm41SpT33OrQIoRg4GdQjaQtYTIf9cvGALmSdC3ptshdALK7TYPSYyhNd4pBT4C4yBGMbjjvczO6mF3CMDcF4qukbwXKMAaxO9F1mN36UngcNTBaqx3iS4tfwDQ6Vhfsc3XudQeo6wI6U5ehsnQbE0vfFnBsHGTbWszQMnYzxwxh6GbX6qzi9Eqlszj4V4h09MUMYZwAZupc7UsQBz1dK1P87BCEiS8iTM06huLewoDnHpGNsygfR4wZXxOEpQo3vSmEwd6q35U+bBwrNOPGaZeLe4djhGXIfx81V8iyW7QWhWn200aEeUtK7CvTP2VEmOykxgMQa6It/n7W4TnjU0bNzaLyLrk3ktZFfJZYl88N6Gfjb304JBMAVzZawRAr7c8QC+3PEC6/J+rSfG1nj8Xi2d3RMD5v74J4tQ1iiMciD+rOIwP8Fnd/gmTl/NmghgHEL6F70a0M8iDpXl2J75RsSxouljRxPyPkWWA4ai5mq/xRZw0Xk2151uArHRaa8bCVVcseZ6vNTnGxsfYWoaIEWWpf3hiW55ZagyOz2LthIpAzWFtghtpbhhulQWi5ubqzPSuE2iHt2AnTevWNRuibxQTwchTVfsVZATCwDeys9qjX538XqKNw7VqPTRJaK2tmZMMJZ5PVZhmQ44YrFTskTzqsoGvNDAPacuze0GpZRvTMfcu6rGLMNPjSD24rwLaKYR7VHQ9i78xCwKkO+2zs1mRNjgzGC7qT9DuLmbj6NRC74FpdvFghWoBVNq1AkClmPkv3i3uUF9M6vOqbUWEFmCxtO4NFV7EibCcxGRCMCxDdk41Bbsp8/6Lo8KMWM9xEXUTGTOcfG5Yfi31jukmtH51ZjgtTg4n730LSr6bnXxpxM4vNiTbMgyN/sxfHA59BY1MwdncyGHvGUtJ9H0wGFEuRmKqznT37LD4bU3/ce+J2QCDL8hhMDa5vjgXlKeVKtlBZPZdV9i9x/NZ/NkXyU1cigzilaq59l+rxF+5FNzBsTB9XAAAAAElFTkSuQmCC);
+      -webkit-mask-size: 300% 130%;
+      mask-size: 300% 80%;
+      -webkit-mask-position: 70% 10%;
+      mask-position: 70% 0%;
+      -webkit-mask-repeat: no-repeat;
+      mask-repeat: no-repeat;
+    }
+    .trailers-player iframe, .trailers-player video {
       position: absolute;
-      left: 0; top: 0;
-      background: #000;
-      z-index: 11 !important;
-      opacity: 1 !important;
-      pointer-events: none !important;
-      border-radius: 1.5vw;
-      mask-image: linear-gradient(180deg, #000 80%, transparent 100%);
-      -webkit-mask-image: linear-gradient(180deg, #000 80%, transparent 100%);
-      transition: opacity 0.5s;
+      top: 40%;
+      left: 0;
+      width: 100%;
+      height: auto;
+      -webkit-transform: translateY(-50%);
+      -ms-transform: translateY(-50%);
+      -o-transform: translateY(-50%);
+      transform: translateY(-50%);
+      -o-object-fit: cover;
+      object-fit: cover;
+      aspect-ratio: 10/9;
+      pointer-events: none;
     }
-    .card--no-cover .full-start-new__img.full--poster,
-    .card--no-cover .full-start-new__details,
-    .card--no-cover .full-start-new__title {
-      opacity: 0 !important;
-      pointer-events: none !important;
-      transition: opacity 0.5s;
-    }
+    /* ...остальные стили и медиа-запросы... */
   </style>`);
   $('body').append(Lampa.Template.get('modss_style', {}, true));
 }
